@@ -2,15 +2,35 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from langchain_core.runnables import RunnableConfig
 
 from app.nodes.chat import chat_agent_node, general_node, router_node
+from app.pipeline.driver import EventQueue, run_investigation_async
 from app.remote.stream import StreamEvent
 from app.state import AgentState, make_initial_state
+
+RunnerChoice = Literal["langgraph", "procedural"]
+_RUNNER_ENV_VAR = "OPENSRE_RUNNER"
+_DEFAULT_RUNNER: RunnerChoice = "langgraph"
+
+
+def _runner_choice() -> RunnerChoice:
+    """Return the active investigation runner, defaulting to ``langgraph``.
+
+    Read on every invocation so tests and CLI calls can flip the flag at
+    runtime without restarting the process.
+    """
+    raw = (os.environ.get(_RUNNER_ENV_VAR) or "").strip().lower()
+    if raw == "procedural":
+        return "procedural"
+    return _DEFAULT_RUNNER
 
 
 def _merge_state(state: AgentState, updates: dict[str, Any]) -> None:
@@ -44,18 +64,26 @@ def run_investigation(
     raw_alert: str | dict[str, Any] | None = None,
     resolved_integrations: dict[str, Any] | None = None,
 ) -> AgentState:
-    """Run investigation pipeline via LangGraph. Pure function: inputs in, state out.
+    """Run investigation pipeline. Pure function: inputs in, state out.
+
+    Dispatches to LangGraph or the procedural driver based on
+    ``OPENSRE_RUNNER`` (``langgraph`` by default; set ``procedural`` to use
+    :func:`app.pipeline.driver.run_investigation_async`).
 
     Args:
         resolved_integrations: Optional pre-resolved integrations dict. When provided,
             node_resolve_integrations is skipped — useful for synthetic testing where a
             FixtureGrafanaBackend should be injected without real credential resolution.
     """
-    from app.pipeline.graph import graph as compiled_graph  # lazy to avoid circular import
-
     initial = make_initial_state(alert_name, pipeline_name, severity, raw_alert=raw_alert)
     if resolved_integrations is not None:
         cast(dict[str, Any], initial)["resolved_integrations"] = resolved_integrations
+
+    if _runner_choice() == "procedural":
+        return asyncio.run(run_investigation_async(initial))
+
+    from app.pipeline.graph import graph as compiled_graph  # lazy to avoid circular import
+
     return cast(AgentState, compiled_graph.invoke(initial))
 
 
@@ -65,18 +93,43 @@ async def astream_investigation(
     severity: str,
     raw_alert: str | dict[str, Any] | None = None,
 ) -> AsyncIterator[StreamEvent]:
-    """Stream investigation events via LangGraph's ``astream_events``.
+    """Stream investigation events.
 
-    Yields :class:`StreamEvent` objects compatible with the remote
-    ``StreamRenderer``, so local and remote investigations share the
-    same terminal UX.
+    Dispatches to LangGraph's ``astream_events`` or the procedural driver's
+    queue-based stream based on ``OPENSRE_RUNNER``. Either way, yields
+    :class:`StreamEvent` objects compatible with the remote
+    ``StreamRenderer`` so local and remote investigations share the same
+    terminal UX.
     """
-    from app.pipeline.graph import graph as compiled_graph  # lazy to avoid circular import
-
     initial = make_initial_state(alert_name, pipeline_name, severity, raw_alert=raw_alert)
 
-    async for event in compiled_graph.astream_events(initial, version="v2"):
-        yield _map_langgraph_event(dict(event))
+    if _runner_choice() == "procedural":
+        async for event in _astream_procedural(initial):
+            yield event
+        return
+
+    from app.pipeline.graph import graph as compiled_graph  # lazy to avoid circular import
+
+    async for raw_event in compiled_graph.astream_events(initial, version="v2"):
+        yield _map_langgraph_event(dict(raw_event))
+
+
+async def _astream_procedural(initial: AgentState) -> AsyncIterator[StreamEvent]:
+    """Drain :func:`run_investigation_async`'s event queue as it executes."""
+    queue: EventQueue = asyncio.Queue()
+    runner = asyncio.create_task(run_investigation_async(initial, queue=queue))
+    try:
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield event
+    finally:
+        if not runner.done():
+            # The driver-level stage emitted an on_chain_error event already;
+            # we only need to drain the task so we don't leak it.
+            with contextlib.suppress(Exception):
+                await runner
 
 
 def _map_langgraph_event(event: dict[str, Any]) -> StreamEvent:
@@ -107,7 +160,20 @@ def _map_langgraph_event(event: dict[str, Any]) -> StreamEvent:
 @dataclass
 class SimpleAgent:
     def invoke(self, state: AgentState, config: RunnableConfig | None = None) -> AgentState:
+        cfg = config or {"configurable": {}}
+
+        if _runner_choice() == "procedural":
+            return asyncio.run(run_investigation_async(state, cfg))
+
         from app.pipeline.graph import graph as compiled_graph  # lazy to avoid circular import
 
-        cfg = config or {"configurable": {}}
         return cast(AgentState, compiled_graph.invoke(state, cfg))
+
+
+__all__ = [
+    "RunnerChoice",
+    "SimpleAgent",
+    "astream_investigation",
+    "run_chat",
+    "run_investigation",
+]
