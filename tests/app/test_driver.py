@@ -207,9 +207,10 @@ def test_astream_procedural_emits_stage_markers_for_each_node(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_runner_choice_defaults_to_langgraph(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_runner_choice_defaults_to_procedural(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 6: procedural is the default. Phase 7 will remove the LangGraph fallback."""
     monkeypatch.delenv("OPENSRE_RUNNER", raising=False)
-    assert _runner_choice() == "langgraph"
+    assert _runner_choice() == "procedural"
 
 
 def test_runner_choice_reads_procedural_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -217,9 +218,17 @@ def test_runner_choice_reads_procedural_from_env(monkeypatch: pytest.MonkeyPatch
     assert _runner_choice() == "procedural"
 
 
-def test_runner_choice_falls_back_for_unknown_value(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENSRE_RUNNER", "bogus")
+def test_runner_choice_honors_langgraph_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``OPENSRE_RUNNER=langgraph`` overrides the new procedural default."""
+    monkeypatch.setenv("OPENSRE_RUNNER", "langgraph")
     assert _runner_choice() == "langgraph"
+
+
+def test_runner_choice_falls_back_to_default_for_unknown_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENSRE_RUNNER", "bogus")
+    assert _runner_choice() == "procedural"
 
 
 def test_run_investigation_routes_to_procedural_when_flagged(

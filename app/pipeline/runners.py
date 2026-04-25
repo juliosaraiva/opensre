@@ -18,16 +18,24 @@ from app.state import AgentState, make_initial_state
 
 RunnerChoice = Literal["langgraph", "procedural"]
 _RUNNER_ENV_VAR = "OPENSRE_RUNNER"
-_DEFAULT_RUNNER: RunnerChoice = "langgraph"
+# Phase 6: procedural is the default. The LangGraph runner remains available
+# as an opt-in fallback (``OPENSRE_RUNNER=langgraph``) for one release window
+# while we validate the procedural path under production load. Phase 7
+# removes the LangGraph branch and this flag entirely.
+_DEFAULT_RUNNER: RunnerChoice = "procedural"
 
 
 def _runner_choice() -> RunnerChoice:
-    """Return the active investigation runner, defaulting to ``langgraph``.
+    """Return the active investigation runner.
 
-    Read on every invocation so tests and CLI calls can flip the flag at
-    runtime without restarting the process.
+    Defaults to ``procedural`` (Phase 6 onward). Set ``OPENSRE_RUNNER=langgraph``
+    to fall back to the legacy ``StateGraph`` driver. Read on every invocation
+    so tests and CLI calls can flip the flag at runtime without restarting
+    the process.
     """
     raw = (os.environ.get(_RUNNER_ENV_VAR) or "").strip().lower()
+    if raw == "langgraph":
+        return "langgraph"
     if raw == "procedural":
         return "procedural"
     return _DEFAULT_RUNNER
