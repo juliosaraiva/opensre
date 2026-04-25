@@ -1,22 +1,28 @@
 -include .env
 export
 
-.PHONY: install onboard benchmark benchmark-update-readme test test-full demo alert-template investigate-alert verify-integrations check-docker check-langgraph check-langsmith-api-key grafana-local-up grafana-local-down grafana-local-seed langgraph-build langgraph-deploy clean lint format deploy deploy-lambda deploy-prefect deploy-flink destroy destroy-lambda destroy-prefect destroy-flink prefect-local-test simulate-k8s-alert test-k8s-local test-k8s test-k8s-datadog chaos-mesh-up chaos-mesh-down chaos-engineering-apply chaos-engineering-delete chaos-lab-up chaos-lab-down chaos-experiment-list chaos-experiment-up chaos-experiment-down deploy-dd-monitors cleanup-dd-monitors deploy-eks destroy-eks test-k8s-eks datadog-demo crashloop-demo regen-trigger-config test-rca test-rca-grafana test-synthetic test-rds-synthetic test-cli-smoke deploy-langsmith destroy-langsmith test-langsmith deploy-vercel destroy-vercel test-vercel deploy-ec2 destroy-ec2 test-ec2 deploy-ec2-hello destroy-ec2-hello deploy-remote destroy-remote deploy-bedrock destroy-bedrock test-bedrock
+.PHONY: install onboard benchmark benchmark-update-readme test test-full demo alert-template investigate-alert verify-integrations check-uv check-docker check-langgraph check-langsmith-api-key grafana-local-up grafana-local-down grafana-local-seed langgraph-build langgraph-deploy clean lint format deploy deploy-lambda deploy-prefect deploy-flink destroy destroy-lambda destroy-prefect destroy-flink prefect-local-test simulate-k8s-alert test-k8s-local test-k8s test-k8s-datadog chaos-mesh-up chaos-mesh-down chaos-engineering-apply chaos-engineering-delete chaos-lab-up chaos-lab-down chaos-experiment-list chaos-experiment-up chaos-experiment-down deploy-dd-monitors cleanup-dd-monitors deploy-eks destroy-eks test-k8s-eks datadog-demo crashloop-demo regen-trigger-config test-rca test-rca-grafana test-synthetic test-rds-synthetic test-cli-smoke deploy-langsmith destroy-langsmith test-langsmith deploy-vercel destroy-vercel test-vercel deploy-ec2 destroy-ec2 test-ec2 deploy-ec2-hello destroy-ec2-hello deploy-remote destroy-remote deploy-bedrock destroy-bedrock test-bedrock
 
-# All Python invocations go through uv. See .python-version (3.13) + uv.lock.
-# `uv run` activates the managed .venv per command; no manual `source` needed.
+# All Python invocations go through uv. Interpreter pin lives in .tool-versions
+# (python 3.13.11) and pyproject.toml (`requires-python = ">=3.11"`); resolved
+# deps live in uv.lock. `uv run` activates the managed .venv per command, so no
+# manual `source .venv/bin/activate` is needed.
 PYTHON := uv run python
 PIP := uv pip
 # Kept for backward compat: if someone `source .venv/bin/activate`s, their PATH still finds console scripts.
 export PATH := $(if $(wildcard .venv/bin),$(CURDIR)/.venv/bin:,)$(PATH)
 
-# Create uv-managed venv and install dependencies (+ run post-install analytics hook).
-install:
-	uv sync --extra dev
-	uv run python -m app.analytics.install
+# Verify uv is on PATH before any uv-driven target runs.
+check-uv:
+	@command -v uv >/dev/null 2>&1 || { echo "uv is required for this Makefile. Install it with 'curl -LsSf https://astral.sh/uv/install.sh | sh' (macOS/Linux) or 'brew install uv', then rerun. Docs: https://docs.astral.sh/uv/"; exit 1; }
 
-build:
-	uv run python -m build
+# Create uv-managed venv and install dependencies (+ run post-install analytics hook).
+install: check-uv
+	uv sync --extra dev
+	$(PYTHON) -m app.analytics.install
+
+build: check-uv
+	$(PYTHON) -m build
 
 # Run the local onboarding flow
 onboard:
@@ -49,7 +55,7 @@ check-docker:
 	@docker info >/dev/null 2>&1 || { echo "Docker is installed, but the Docker daemon is not running. Start Docker Desktop, OrbStack, or Colima, then rerun this target."; exit 1; }
 
 check-langgraph:
-	@command -v langgraph >/dev/null 2>&1 || { echo "The LangGraph CLI is required for this target. Install it with 'pip install langgraph-cli' and rerun."; exit 1; }
+	@command -v langgraph >/dev/null 2>&1 || { echo "The LangGraph CLI is required for this target. Install it inside the uv-managed venv with 'uv add langgraph-cli' (or 'uv pip install langgraph-cli'), then rerun."; exit 1; }
 
 check-langsmith-api-key:
 	@[ -n "$$LANGGRAPH_HOST_API_KEY" ] || [ -n "$$LANGSMITH_API_KEY" ] || [ -n "$$LANGCHAIN_API_KEY" ] || { echo "Set LANGSMITH_API_KEY (or LANGGRAPH_HOST_API_KEY / LANGCHAIN_API_KEY) in your environment or .env before deploying to LangGraph."; exit 1; }
