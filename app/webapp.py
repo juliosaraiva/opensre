@@ -69,7 +69,8 @@ app = FastAPI(title="OpenSRE", version=get_version())
 
 
 def _graph_loaded() -> bool:
-    return "app.graph_pipeline" in sys.modules
+    """Compatibility shim — the procedural driver replaces the LangGraph pipeline."""
+    return "app.pipeline.driver" in sys.modules
 
 
 def _llm_configured() -> bool:
@@ -124,17 +125,10 @@ def _build_initial_investigation_state(
 
 
 def _run_investigation_sync(state: AgentState) -> AgentState:
-    """Dispatch to the active runner — procedural or LangGraph — based on env."""
-    from app.pipeline.runners import _runner_choice  # noqa: PLC0415
+    """Run the procedural investigation driver synchronously."""
+    from app.pipeline.driver import run_investigation_async  # noqa: PLC0415
 
-    if _runner_choice() == "procedural":
-        from app.pipeline.driver import run_investigation_async  # noqa: PLC0415
-
-        return asyncio.run(run_investigation_async(state))
-
-    from app.pipeline.graph import graph as compiled_graph  # noqa: PLC0415
-
-    return cast(AgentState, compiled_graph.invoke(state))
+    return asyncio.run(run_investigation_async(state))
 
 
 @app.post("/investigations")
@@ -161,18 +155,9 @@ async def post_investigation_stream(
 
 
 async def _investigation_sse(state: AgentState) -> AsyncIterator[bytes]:
-    from app.pipeline.runners import _astream_procedural, _runner_choice  # noqa: PLC0415
+    from app.pipeline.runners import _astream_procedural  # noqa: PLC0415
 
-    if _runner_choice() == "procedural":
-        async for event in _astream_procedural(state):
-            yield _format_sse(event.event_type, asdict(event))
-        return
-
-    from app.pipeline.graph import graph as compiled_graph  # noqa: PLC0415
-    from app.pipeline.runners import _map_langgraph_event  # noqa: PLC0415
-
-    async for raw_event in compiled_graph.astream_events(state, version="v2"):
-        event = _map_langgraph_event(dict(raw_event))
+    async for event in _astream_procedural(state):
         yield _format_sse(event.event_type, asdict(event))
 
 

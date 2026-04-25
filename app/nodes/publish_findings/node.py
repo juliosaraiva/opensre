@@ -4,8 +4,6 @@ import logging
 import os
 from typing import cast
 
-from langsmith import traceable
-
 from app.masking import MaskingContext
 from app.nodes.publish_findings.formatters.report import (
     build_slack_blocks,
@@ -186,7 +184,6 @@ def generate_report(state: InvestigationState) -> dict:
     return {"slack_message": slack_message, "report": slack_message}
 
 
-@traceable(name="node_publish_findings")
 def node_publish_findings(state: InvestigationState) -> dict:
     """LangGraph node wrapper with LangSmith tracking."""
     return generate_report(state)

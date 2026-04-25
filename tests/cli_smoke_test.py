@@ -571,4 +571,5 @@ def test_deploy_help_smoke(cli_sandbox: CliSandbox) -> None:
 
     assert result.exit_code == 0
     assert "ec2" in result.stdout
-    assert "langsmith" in result.stdout
+    # LangSmith deploy target was removed in Phase 7.
+    assert "langsmith" not in result.stdout.lower()

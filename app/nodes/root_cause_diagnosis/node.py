@@ -2,8 +2,6 @@
 
 import os
 
-from langsmith import traceable
-
 from app.investigation_constants import MAX_INVESTIGATION_LOOPS
 from app.masking import MaskingContext
 from app.output import debug_print, get_tracker
@@ -198,7 +196,6 @@ def _handle_insufficient_evidence(state: InvestigationState, tracker) -> dict:
     }
 
 
-@traceable(name="node_diagnose_root_cause")
 def node_diagnose_root_cause(state: InvestigationState) -> dict:
     """LangGraph node wrapper with LangSmith tracking."""
     return diagnose_root_cause(state)

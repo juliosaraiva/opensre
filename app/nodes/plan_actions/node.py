@@ -2,7 +2,6 @@
 
 from typing import cast
 
-from langsmith import traceable
 from pydantic import BaseModel, Field
 
 from app.nodes.investigate.models import InvestigateInput
@@ -37,7 +36,6 @@ class InvestigationPlan(BaseModel):
         return self.retrieval_controls.get(action_name)
 
 
-@traceable(name="node_plan_actions")
 def node_plan_actions(state: InvestigationState) -> dict:
     """Plan investigation actions and write plan outputs to state.
 

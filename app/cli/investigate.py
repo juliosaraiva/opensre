@@ -6,8 +6,6 @@ import asyncio
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from langsmith import traceable
-
 from app.config import LLMSettings
 
 if TYPE_CHECKING:
@@ -48,7 +46,6 @@ def resolve_investigation_context(
     )
 
 
-@traceable(name="investigation")
 def run_investigation_cli(
     *,
     raw_alert: dict[str, Any],

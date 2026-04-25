@@ -1,23 +1,26 @@
-"""Procedural investigation driver — same behavior as the LangGraph pipeline,
-no graph engine.
+"""Procedural investigation driver — the only investigation runner.
 
-Phase 3 of the LangGraph→Claude Agent SDK migration. This module replaces the
-``StateGraph`` in :mod:`app.pipeline.graph` with a plain ``async`` function
-that calls the existing pure-function nodes in sequence and applies the same
-routing decisions inline. Both runners coexist behind the ``OPENSRE_RUNNER``
-flag (handled in :mod:`app.pipeline.runners`) so we can A/B them in CI.
+Originally introduced in Phase 3 as an alternative to the LangGraph
+``StateGraph`` (selected via ``OPENSRE_RUNNER=procedural``). Phase 7
+removed the LangGraph runner entirely; this is now the single path.
 
 The driver:
 
-- Mutates a single ``AgentState`` dict in place (no concurrent reducers, so
-  the LangGraph ``add_messages`` reducer is unnecessary; for parity with the
-  legacy runner, ``messages`` is still appended via ``_merge_state``).
+- Mutates a single ``AgentState`` dict in place. There is no graph, so no
+  reducer infrastructure is needed; ``messages`` is appended via
+  :func:`_merge_state` for parity with how the legacy LangGraph
+  ``add_messages`` reducer behaved.
 - Calls every node synchronously inside the ``async`` body — the nodes are
   themselves sync today, and an async surface lets later phases adopt
   Claude SDK streaming without breaking the API.
 - Emits :class:`StreamEvent`-shaped progress markers through an optional
   ``asyncio.Queue`` so the existing remote/web frontend can consume the same
-  wire format as ``astream_events`` did.
+  wire format that LangGraph's ``astream_events`` used to produce.
+
+Auth context is no longer injected here. The standalone webapp
+(``app.webapp``) populates ``state`` with ``UserContext.as_state_fields()``
+before invoking the driver, and direct callers (CLI, tests) supply state
+themselves. The legacy ``inject_auth_node`` is gone.
 """
 
 from __future__ import annotations
@@ -26,8 +29,7 @@ import asyncio
 import logging
 from typing import Any, cast
 
-from langchain_core.runnables import RunnableConfig
-
+from app.investigation_constants import MAX_INVESTIGATION_LOOPS
 from app.nodes import (
     node_diagnose_root_cause,
     node_extract_alert,
@@ -35,9 +37,7 @@ from app.nodes import (
     node_publish_findings,
     node_resolve_integrations,
 )
-from app.nodes.auth import inject_auth_node
 from app.nodes.investigate.node import node_investigate
-from app.pipeline.routing import route_after_extract, route_investigation_loop
 from app.pipeline.stream_adapter import stage_event
 from app.remote.stream import StreamEvent
 from app.state import AgentState
@@ -48,12 +48,7 @@ EventQueue = asyncio.Queue[StreamEvent | None]
 
 
 def _merge_state(state: AgentState, updates: dict[str, Any]) -> None:
-    """Apply node updates to ``state`` with append-semantics for ``messages``.
-
-    Mirrors :func:`app.pipeline.runners._merge_state` so chat-mode and
-    investigation-mode mutations stay consistent across the procedural and
-    LangGraph runners.
-    """
+    """Apply node updates to ``state`` with append-semantics for ``messages``."""
     if not updates:
         return
     state_any = cast(dict[str, Any], state)
@@ -67,6 +62,23 @@ def _merge_state(state: AgentState, updates: dict[str, Any]) -> None:
             state_any["messages"] = messages
             continue
         state_any[key] = value
+
+
+def should_continue_investigation(state: AgentState) -> bool:
+    """Decide whether the plan→investigate→diagnose loop should run again.
+
+    Inlined from the deleted ``app.pipeline.routing.should_continue_investigation``.
+    Returns True to loop; False to publish.
+    """
+    try:
+        if not state.get("available_action_names", []):
+            return False
+        if state.get("investigation_loop_count", 0) > MAX_INVESTIGATION_LOOPS:
+            return False
+        return bool(state.get("investigation_recommendations", []))
+    except Exception:  # noqa: BLE001
+        logger.exception("loop-decision check failed; publishing")
+        return False
 
 
 async def _emit(queue: EventQueue | None, event: StreamEvent) -> None:
@@ -96,37 +108,33 @@ async def _run_stage(
 
 async def run_investigation_async(
     initial: AgentState,
-    config: RunnableConfig | None = None,
     *,
     queue: EventQueue | None = None,
 ) -> AgentState:
     """Run the investigation pipeline procedurally.
 
-    Equivalent in behavior to ``app.pipeline.graph.graph.invoke(initial, config)``
-    for ``mode="investigation"`` states. The function mutates ``initial`` and
-    returns the same dict.
+    Mutates ``initial`` and returns it. Auth context is read from ``state``
+    directly — populate ``state["org_id"]``, ``state["user_id"]``, etc. before
+    calling (the standalone webapp does this via ``UserContext.as_state_fields()``).
     """
-    cfg: RunnableConfig = config or {"configurable": {}}
     state = initial
 
-    _merge_state(state, await _run_stage(queue, "inject_auth", inject_auth_node, state, cfg))
-
     _merge_state(state, await _run_stage(queue, "extract_alert", node_extract_alert, state))
-    if route_after_extract(state) == "end":
+    if state.get("is_noise"):
         if queue is not None:
             await queue.put(None)
         return state
 
     _merge_state(
         state,
-        await _run_stage(queue, "resolve_integrations", node_resolve_integrations, state, cfg),
+        await _run_stage(queue, "resolve_integrations", node_resolve_integrations, state),
     )
 
     while True:
         _merge_state(state, await _run_stage(queue, "plan_actions", node_plan_actions, state))
         _merge_state(state, await _run_stage(queue, "investigate", node_investigate, state))
         _merge_state(state, await _run_stage(queue, "diagnose", node_diagnose_root_cause, state))
-        if route_investigation_loop(state) == "publish":
+        if not should_continue_investigation(state):
             break
 
     _merge_state(state, await _run_stage(queue, "publish", node_publish_findings, state))
@@ -136,4 +144,4 @@ async def run_investigation_async(
     return state
 
 
-__all__ = ["EventQueue", "run_investigation_async"]
+__all__ = ["EventQueue", "run_investigation_async", "should_continue_investigation"]

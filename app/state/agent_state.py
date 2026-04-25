@@ -8,9 +8,8 @@ the same set of keys and will fail if they diverge.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Any
 
-from langgraph.graph import add_messages
 from pydantic import ConfigDict, Field
 from typing_extensions import TypedDict
 
@@ -37,8 +36,9 @@ class AgentState(TypedDict, total=False):
     user_name: str
     organization_slug: str
 
-    # Chat mode — conversation (add_messages reducer appends instead of replacing)
-    messages: Annotated[list, add_messages]
+    # Chat mode — conversation. Procedural runners append messages explicitly
+    # via app.pipeline.driver._merge_state and app.pipeline.runners._merge_state.
+    messages: list[Any]
 
     # Alert classification
     is_noise: bool
