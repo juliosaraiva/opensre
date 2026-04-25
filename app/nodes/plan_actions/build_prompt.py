@@ -3,6 +3,7 @@
 from pydantic import BaseModel, ValidationError
 
 from app.nodes.investigate.types import ExecutedHypothesis
+from app.services.structured_llm import invoke_structured
 
 
 def _get_executed_sources(executed_hypotheses: list[ExecutedHypothesis]) -> set[str]:
@@ -448,9 +449,13 @@ def plan_actions_with_llm(
     )
 
     # If memory context is provided, we're already using fast model from caller
-    structured_llm = llm.with_structured_output(plan_model)
     try:
-        return structured_llm.with_config(run_name="LLM – Plan evidence gathering").invoke(prompt)
+        return invoke_structured(
+            prompt,
+            plan_model,
+            llm=llm,
+            run_name="LLM – Plan evidence gathering",
+        )
     except (ValidationError, ValueError):
         fallback_actions = [action.name for action in available_actions][:3]
         rationale = "Fallback plan: LLM returned invalid structured output."

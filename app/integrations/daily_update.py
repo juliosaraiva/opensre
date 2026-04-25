@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
-from app.services.llm_client import get_llm_for_reasoning
+from app.services.structured_llm import invoke_structured
 from app.version import get_version
 
 GITHUB_API_BASE_URL = "https://api.github.com"
@@ -512,7 +512,7 @@ def summarize_highlights(
 
     prompt = _build_summary_prompt(repository, window, pull_requests)
     try:
-        response = get_llm_for_reasoning().with_structured_output(HighlightResponse).invoke(prompt)
+        response = invoke_structured(prompt, HighlightResponse)
         highlights = tuple(item.strip() for item in response.highlights if item.strip())
         if highlights:
             return highlights, False
