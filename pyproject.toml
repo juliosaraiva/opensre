@@ -16,6 +16,7 @@ keywords = ["sre", "devops", "incident", "rca", "llm", "ai", "agent", "observabi
 dependencies = [
     # Core AI/Agent
     "anthropic>=0.77.1",
+    "claude-agent-sdk>=0.1.68",
     "mcp>=1.27.0",
     "openai>=2.0.0",
     "langsmith>=0.7.30",
