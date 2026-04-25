@@ -1,33 +1,32 @@
 -include .env
 export
 
-.PHONY: install onboard benchmark benchmark-update-readme test test-full demo alert-template investigate-alert verify-integrations check-docker check-langgraph check-langsmith-api-key grafana-local-up grafana-local-down grafana-local-seed langgraph-build langgraph-deploy clean lint format deploy deploy-lambda deploy-prefect deploy-flink destroy destroy-lambda destroy-prefect destroy-flink prefect-local-test simulate-k8s-alert test-k8s-local test-k8s test-k8s-datadog chaos-mesh-up chaos-mesh-down chaos-engineering-apply chaos-engineering-delete chaos-lab-up chaos-lab-down chaos-experiment-list chaos-experiment-up chaos-experiment-down deploy-dd-monitors cleanup-dd-monitors deploy-eks destroy-eks test-k8s-eks datadog-demo crashloop-demo regen-trigger-config test-rca test-rca-grafana test-synthetic test-rds-synthetic test-cli-smoke deploy-langsmith destroy-langsmith test-langsmith deploy-vercel destroy-vercel test-vercel deploy-ec2 destroy-ec2 test-ec2 deploy-ec2-hello destroy-ec2-hello deploy-remote destroy-remote deploy-bedrock destroy-bedrock test-bedrock
+.PHONY: install onboard benchmark benchmark-update-readme test test-full demo alert-template investigate-alert verify-integrations check-uv check-docker check-langgraph check-langsmith-api-key grafana-local-up grafana-local-down grafana-local-seed langgraph-build langgraph-deploy clean lint format deploy deploy-lambda deploy-prefect deploy-flink destroy destroy-lambda destroy-prefect destroy-flink prefect-local-test simulate-k8s-alert test-k8s-local test-k8s test-k8s-datadog chaos-mesh-up chaos-mesh-down chaos-engineering-apply chaos-engineering-delete chaos-lab-up chaos-lab-down chaos-experiment-list chaos-experiment-up chaos-experiment-down deploy-dd-monitors cleanup-dd-monitors deploy-eks destroy-eks test-k8s-eks datadog-demo crashloop-demo regen-trigger-config test-rca test-rca-grafana test-synthetic test-rds-synthetic test-cli-smoke deploy-langsmith destroy-langsmith test-langsmith deploy-vercel destroy-vercel test-vercel deploy-ec2 destroy-ec2 test-ec2 deploy-ec2-hello destroy-ec2-hello deploy-remote destroy-remote deploy-bedrock destroy-bedrock test-bedrock
 
-ifneq ($(wildcard .venv/bin/python),)
-PYTHON = .venv/bin/python
-PIP = .venv/bin/python -m pip
-else
-PYTHON = python3
-PIP = python3 -m pip
-endif
-# PIP_INSTALL_FLAGS = --user --break-system-packages
-USER_BASE := $(shell $(PYTHON) -m site --user-base)
-USER_BIN := $(USER_BASE)/bin
-export PATH := $(if $(wildcard .venv/bin),$(CURDIR)/.venv/bin:,)$(USER_BIN):$(PATH)
+# All Python invocations go through uv. Interpreter pin lives in .tool-versions
+# (python 3.13.11) and pyproject.toml (`requires-python = ">=3.11"`); resolved
+# deps live in uv.lock. `uv run` activates the managed .venv per command, so no
+# manual `source .venv/bin/activate` is needed.
+PYTHON := uv run python
+PIP := uv pip
+# Kept for backward compat: if someone `source .venv/bin/activate`s, their PATH still finds console scripts.
+export PATH := $(if $(wildcard .venv/bin),$(CURDIR)/.venv/bin:,)$(PATH)
 
-# Create venv and install dependencies
-install:
-	python3 -m venv .venv
-	$(PIP) install --upgrade pip
-	$(PIP) install $(PIP_INSTALL_FLAGS) -e ".[dev]"
+# Verify uv is on PATH before any uv-driven target runs.
+check-uv:
+	@command -v uv >/dev/null 2>&1 || { echo "uv is required for this Makefile. Install it with 'curl -LsSf https://astral.sh/uv/install.sh | sh' (macOS/Linux) or 'brew install uv', then rerun. Docs: https://docs.astral.sh/uv/"; exit 1; }
+
+# Create uv-managed venv and install dependencies (+ run post-install analytics hook).
+install: check-uv
+	uv sync --extra dev
 	$(PYTHON) -m app.analytics.install
 
-build:
+build: check-uv
 	$(PYTHON) -m build
 
 # Run the local onboarding flow
 onboard:
-	opensre onboard
+	uv run opensre onboard
 
 # Run Prefect ECS demo (default demo) - shows Investigation Trace in RCA
 demo:
@@ -42,21 +41,21 @@ benchmark-update-readme:
 	$(PYTHON) -m tests.benchmarks.toolcall_model_benchmark.readme_updater
 
 alert-template:
-	opensre investigate --print-template $(or $(TEMPLATE),generic)
+	uv run opensre investigate --print-template $(or $(TEMPLATE),generic)
 
 investigate-alert:
 	@[ -n "$(ALERT)" ] || { echo "Usage: make investigate-alert ALERT=/path/to/alert.json"; exit 1; }
-	opensre investigate --input "$(ALERT)"
+	uv run opensre investigate --input "$(ALERT)"
 
 verify-integrations:
-	opensre integrations verify $(if $(SERVICE),$(SERVICE),) $(if $(SLACK_TEST),--send-slack-test,)
+	uv run opensre integrations verify $(if $(SERVICE),$(SERVICE),) $(if $(SLACK_TEST),--send-slack-test,)
 
 check-docker:
 	@command -v docker >/dev/null 2>&1 || { echo "Docker is required for the live local Grafana stack. Install Docker Desktop or another Docker-compatible runtime, then rerun this target."; exit 1; }
 	@docker info >/dev/null 2>&1 || { echo "Docker is installed, but the Docker daemon is not running. Start Docker Desktop, OrbStack, or Colima, then rerun this target."; exit 1; }
 
 check-langgraph:
-	@command -v langgraph >/dev/null 2>&1 || { echo "The LangGraph CLI is required for this target. Install it with 'pip install langgraph-cli' and rerun."; exit 1; }
+	@command -v langgraph >/dev/null 2>&1 || { echo "The LangGraph CLI is required for this target. Install it inside the uv-managed venv with 'uv add langgraph-cli' (or 'uv pip install langgraph-cli'), then rerun."; exit 1; }
 
 check-langsmith-api-key:
 	@[ -n "$$LANGGRAPH_HOST_API_KEY" ] || [ -n "$$LANGSMITH_API_KEY" ] || [ -n "$$LANGCHAIN_API_KEY" ] || { echo "Set LANGSMITH_API_KEY (or LANGGRAPH_HOST_API_KEY / LANGCHAIN_API_KEY) in your environment or .env before deploying to LangGraph."; exit 1; }
@@ -71,10 +70,10 @@ grafana-local-seed:
 	$(PYTHON) -m app.cli.wizard.grafana_seed
 
 langgraph-build: check-langgraph check-docker
-	langgraph build
+	uv run langgraph build
 
 langgraph-deploy: check-langgraph check-docker check-langsmith-api-key
-	langgraph deploy
+	uv run langgraph deploy
 
 # Run CloudWatch demo
 cloudwatch-demo:
@@ -116,7 +115,7 @@ test-rca-grafana: grafana-local-up grafana-local-seed
 # Simulate a Datadog alert via local LangGraph server (full pipeline, real API calls)
 simulate-k8s-alert:
 	@echo "Starting LangGraph dev server..."
-	langgraph dev --no-browser >/tmp/langgraph-dev.log 2>&1 &
+	uv run langgraph dev --no-browser >/tmp/langgraph-dev.log 2>&1 &
 	$(PYTHON) tests/e2e/kubernetes_local_alert_simulation/wait_for_server.py
 	$(PYTHON) -m pytest tests/e2e/kubernetes_local_alert_simulation/test_simulation.py -s; \
 	EXIT=$$?; kill %1 2>/dev/null; exit $$EXIT
@@ -235,10 +234,10 @@ grafana-demo:
 
 # Run the generic CLI (reads from stdin or --input)
 run:
-	opensre investigate
+	uv run opensre investigate
 
-dev: 
-	langgraph dev
+dev:
+	uv run langgraph dev
 
 
 # Deploy all test case infrastructure in parallel (SDK - fast!)
@@ -367,15 +366,15 @@ clean:
 
 # Lint code
 lint:
-	ruff check app/ tests/
+	uv run ruff check app/ tests/
 
 # Check formatting (read-only; CI uses this)
 format-check:
-	ruff format --check app/ tests/
+	uv run ruff format --check app/ tests/
 
 # Format code
 format:
-	ruff format app/ tests/
+	uv run ruff format app/ tests/
 
 # Type check
 typecheck:
