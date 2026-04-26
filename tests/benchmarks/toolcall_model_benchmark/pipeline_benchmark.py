@@ -14,9 +14,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.runnables import RunnableConfig
 
-from app.pipeline import graph as graph_pipeline
+from app.pipeline import driver as graph_pipeline
+from app.pipeline.driver import run_investigation_async
 from app.services import llm_client as llm_mod
 from app.state import AgentState, make_initial_state
 from tests.benchmarks.toolcall_model_benchmark.pricing import estimate_run_cost_usd
@@ -237,24 +237,19 @@ def run_langgraph_investigation_bench(
     stub = _stub_resolve_for_fixture(fixture)
     totals = TokenTotals()
     tokens_by_model: dict[str, TokenTotals] = {}
+    import asyncio
+
     llm_calls: list[LLMCallRecord] = []
     initial = make_investigation_state(fixture)
     run_id = uuid.uuid4().hex[:8]
-    config: RunnableConfig = {
-        "configurable": {
-            "thread_id": f"bench-{run_id}",
-            "run_id": run_id,
-            "langgraph_auth_user": {},
-        }
-    }
+    initial_with_meta = copy.deepcopy(dict(initial))
+    initial_with_meta.update({"thread_id": f"bench-{run_id}", "run_id": run_id})
 
     configure_llm()
 
     with _patch_resolve_integrations(stub), _track_llm_usage(totals, tokens_by_model, llm_calls):
-        graph = graph_pipeline.build_graph()
-        state_in = copy.deepcopy(dict(initial))
         t0 = time.perf_counter()
-        out = graph.invoke(state_in, config)
+        out = asyncio.run(run_investigation_async(initial_with_meta))  # type: ignore[arg-type]
         elapsed = time.perf_counter() - t0
 
     return LangGraphBenchmarkRun(

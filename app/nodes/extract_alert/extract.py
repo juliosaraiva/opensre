@@ -1,11 +1,11 @@
 """Alert extraction and classification - single LLM call."""
 
 import json
-from typing import Any, cast
+from typing import Any
 
 from app.nodes.extract_alert.models import AlertDetails, AlertExtractionInput
 from app.output import debug_print
-from app.services import get_llm_for_reasoning
+from app.services.structured_llm import invoke_structured
 from app.state import InvestigationState
 
 
@@ -39,13 +39,11 @@ Extract these fields from the message text:
 Message:
 {text}
 """
-    llm = get_llm_for_reasoning()
     try:
-        details = cast(
+        details = invoke_structured(
+            prompt,
             AlertDetails,
-            llm.with_structured_output(AlertDetails)
-            .with_config(run_name="LLM – Classify + extract alert")
-            .invoke(prompt),
+            run_name="LLM – Classify + extract alert",
         )
         debug_print(
             f"Alert classified: {'NOISE' if details.is_noise else 'ALERT'} | "

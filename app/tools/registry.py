@@ -22,6 +22,7 @@ _SKIP_MODULE_NAMES = {
     "registered_tool",
     "tool_decorator",
     "investigation_registry",
+    "sdk_bridge",
     "utils",
 }
 

@@ -91,10 +91,10 @@ def test_build_fallback_highlights_uses_titles() -> None:
 def test_summarize_highlights_falls_back_when_llm_fails(monkeypatch) -> None:
     pull_requests = (_pull_request(title="Add more synthetic tests"),)
 
-    def _raise() -> None:
+    def _raise(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("app.integrations.daily_update.get_llm_for_reasoning", _raise)
+    monkeypatch.setattr("app.integrations.daily_update.invoke_structured", _raise)
 
     highlights, fallback_used = summarize_highlights(
         "Tracer-Cloud/opensre",

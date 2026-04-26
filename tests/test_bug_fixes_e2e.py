@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 from app.guardrails.engine import GuardrailEngine
 from app.guardrails.rules import GuardrailAction, GuardrailRule
 from app.investigation_constants import MAX_INVESTIGATION_LOOPS
-from app.pipeline.routing import should_continue_investigation
+from app.pipeline.driver import should_continue_investigation
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -134,7 +134,7 @@ class TestInvestigationLoopE2E:
         assert MAX_INVESTIGATION_LOOPS == 4
 
     def test_routing_continues_when_recommendations_exist(self) -> None:
-        """should_continue_investigation returns 'investigate' for all valid loops."""
+        """should_continue_investigation returns True (continue) for all valid loops."""
         for loop in range(MAX_INVESTIGATION_LOOPS + 1):  # 0..4
             state = {
                 "investigation_recommendations": ["do something"],
@@ -142,7 +142,7 @@ class TestInvestigationLoopE2E:
                 "available_action_names": ["some_action"],
             }
             result = should_continue_investigation(state)
-            assert result == "investigate", f"Loop {loop} should continue but got '{result}'"
+            assert result is True, f"Loop {loop} should continue but got {result}"
 
     def test_routing_publishes_when_over_limit(self) -> None:
         """Loop count > MAX_INVESTIGATION_LOOPS triggers publish."""
@@ -151,7 +151,7 @@ class TestInvestigationLoopE2E:
             "investigation_loop_count": MAX_INVESTIGATION_LOOPS + 1,
             "available_action_names": ["some_action"],
         }
-        assert should_continue_investigation(state) == "publish"
+        assert should_continue_investigation(state) is False
 
     def test_diagnosis_node_generates_recommendations_at_loop_3(self) -> None:
         """Before the fix, loop_count=3 would NOT generate recommendations
@@ -235,9 +235,9 @@ class TestInvestigationLoopE2E:
             if i < MAX_INVESTIGATION_LOOPS:
                 # Loops 0-3: should generate recommendations and continue
                 assert len(recs) > 0, f"Loop {i}: expected recommendations"
-                assert route == "investigate", f"Loop {i}: expected 'investigate' got '{route}'"
+                assert route is True, f"Loop {i}: expected to continue but got {route}"
             else:
                 # Loop 4+: no recommendations, should publish
                 assert len(recs) == 0, f"Loop {i}: expected no recommendations"
-                assert route == "publish", f"Loop {i}: expected 'publish' got '{route}'"
+                assert route is False, f"Loop {i}: expected to publish but got {route}"
                 break

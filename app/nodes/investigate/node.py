@@ -3,8 +3,6 @@
 import logging
 from typing import cast
 
-from langsmith import traceable
-
 from app.masking import MaskingContext
 from app.nodes.investigate.execution import execute_actions
 from app.nodes.investigate.models import InvestigateInput, InvestigateOutput
@@ -19,7 +17,6 @@ from app.tools.investigation_registry import get_available_actions
 logger = logging.getLogger(__name__)
 
 
-@traceable(name="node_investigate")
 def node_investigate(state: InvestigationState) -> dict:
     """
     Execute node:

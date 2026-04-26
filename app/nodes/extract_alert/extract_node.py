@@ -5,8 +5,6 @@ import logging
 import time
 from typing import Any
 
-from langsmith import traceable
-
 from app.nodes.extract_alert.extract import extract_alert_details
 from app.nodes.extract_alert.models import AlertDetails
 from app.output import debug_print, get_tracker, render_investigation_header
@@ -52,7 +50,6 @@ def _enrich_raw_alert(raw_alert: Any, details: AlertDetails) -> Any:
     return enriched
 
 
-@traceable(name="node_extract_alert")
 def node_extract_alert(state: InvestigationState) -> dict:
     """Classify and extract alert details from raw input (single LLM call)."""
     tracker = get_tracker()

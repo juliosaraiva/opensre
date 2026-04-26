@@ -10,7 +10,6 @@ import os
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
-from langsmith import traceable
 
 from app.integrations.catalog import (
     classify_integrations as _classify_integrations,
@@ -50,7 +49,6 @@ def _strip_bearer(token: str) -> str:
     return token
 
 
-@traceable(name="node_resolve_integrations")
 def node_resolve_integrations(
     state: InvestigationState, config: RunnableConfig | None = None
 ) -> dict:

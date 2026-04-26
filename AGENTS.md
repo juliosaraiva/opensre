@@ -179,6 +179,7 @@ The fastest local loop is `make test-cov`, which exercises the non-live unit sui
 - CI-only tests: Some e2e tests, including Kubernetes, EKS, and chaos engineering paths, require live infrastructure and are excluded from `make test-cov`. Do not expect them to pass locally without that environment.
 - LangGraph dev server: `make simulate-k8s-alert` starts a background LangGraph server; kill it manually if it hangs.
 - Docker requirement: Several targets, including the Grafana local stack, LangGraph build/deploy, and Chaos Mesh workflows, require a running Docker daemon.
+- Investigation runner: defaults to the procedural driver (`app/pipeline/driver.py`). Set `OPENSRE_RUNNER=langgraph` to fall back to the legacy `StateGraph` runner during the migration window. The flag and the LangGraph branch are removed in the final migration phase.
 
 ## 6. New Integration Checklist
 
